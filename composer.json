@@ -1,0 +1,41 @@
+{
+    "name": "vaersaagod/cachemate",
+    "description": "Cache me if you can, mate!",
+    "type": "craft-plugin",
+    "version": "1.0.0-beta.1",
+    "require": {
+        "php": "^8.2.0",
+        "craftcms/cms": "^5.4.0"
+    },
+    "require-dev": {
+        "craftcms/ecs": "dev-main",
+        "craftcms/phpstan": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+            "vaersaagod\\cachemate\\": "src/"
+        }
+    },
+    "extra": {
+        "handle": "cachemate",
+        "name": "CacheMate",
+        "developer": "Værsågod",
+        "documentationUrl": "",
+        "class": "vaersaagod\\cachemate\\CacheMate"
+    },
+    "scripts": {
+        "check-cs": "ecs check --ansi",
+        "fix-cs": "ecs check --ansi --fix",
+        "phpstan": "phpstan --memory-limit=1G"
+    },
+    "config": {
+        "sort-packages": true,
+        "platform": {
+            "php": "8.2"
+        },
+        "allow-plugins": {
+            "yiisoft/yii2-composer": true,
+            "craftcms/plugin-installer": true
+        }
+    }
+}
