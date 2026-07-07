@@ -187,6 +187,17 @@ class Settings extends Model
     public int $maxTargetedPurges = 200;
 
     /**
+     * Whether to show a "Purge from static cache" button in the entry edit
+     * sidebar, letting editors purge individual entries manually. The purge
+     * behaves exactly like saving the entry would (purge rules apply).
+     *
+     * Only shown when purging is enabled.
+     *
+     * @var bool
+     */
+    public bool $entryPurgeButton = true;
+
+    /**
      * Whether to cache 404 responses. One 404 page is cached per site (never
      * per URI), and served for subsequent 404s — skipping the error template
      * render and its queries.

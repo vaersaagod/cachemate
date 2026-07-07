@@ -3,17 +3,22 @@
 namespace vaersaagod\cachemate;
 
 use Craft;
+use craft\base\Element;
 use craft\base\Event;
 use craft\base\Model;
 use craft\base\Plugin;
+use craft\elements\Entry;
+use craft\events\DefineHtmlEvent;
 use craft\events\ElementEvent;
 use craft\events\InvalidateElementCachesEvent;
 use craft\events\RegisterCacheOptionsEvent;
+use craft\events\RegisterComponentTypesEvent;
 use craft\log\MonologTarget;
 use craft\queue\Queue;
 use craft\services\Elements;
 use craft\services\Fields;
 use craft\services\Sites;
+use craft\services\Utilities;
 use craft\utilities\ClearCaches;
 use craft\web\twig\variables\CraftVariable;
 
@@ -25,6 +30,7 @@ use vaersaagod\cachemate\models\Settings;
 use vaersaagod\cachemate\services\CachePurgeService;
 use vaersaagod\cachemate\services\CacheRequestService;
 use vaersaagod\cachemate\services\CacheStorageService;
+use vaersaagod\cachemate\utilities\CacheMateUtility;
 use vaersaagod\cachemate\variables\CacheMateVariable;
 
 /**
@@ -125,6 +131,41 @@ class CacheMate extends Plugin
                 $variable->set('cachemate', CacheMateVariable::class);
             }
         );
+
+        // Register the CP utility
+        Event::on(
+            Utilities::class,
+            Utilities::EVENT_REGISTER_UTILITIES,
+            static function(RegisterComponentTypesEvent $event): void {
+                $event->types[] = CacheMateUtility::class;
+            }
+        );
+
+        // Add the purge button to the entry edit sidebar
+        if ($this->getSettings()->entryPurgeButton && $this->getSettings()->purgeEnabled) {
+            Event::on(
+                Entry::class,
+                Element::EVENT_DEFINE_SIDEBAR_HTML,
+                static function(DefineHtmlEvent $event): void {
+                    if ($event->static) {
+                        return;
+                    }
+
+                    /** @var Entry $entry */
+                    $entry = $event->sender;
+                    $canonical = $entry->getIsRevision() ? null : $entry->getCanonical();
+
+                    if ($canonical === null || !$canonical->id || $canonical->getIsDraft() || $canonical->uri === null) {
+                        return;
+                    }
+
+                    $event->html .= Craft::$app->getView()->renderTemplate('cachemate/entry-sidebar.twig', [
+                        'element' => $canonical,
+                        'status' => CacheMate::getInstance()->getCacheStorage()->getElementCacheStatus($canonical),
+                    ]);
+                }
+            );
+        }
 
         // Register the "Clear Caches" utility option
         Event::on(

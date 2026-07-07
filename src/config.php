@@ -123,6 +123,13 @@ return [
         //'maxTargetedPurges' => 200,
 
         /*
+         * Whether to show a "Purge from static cache" button in the entry
+         * edit sidebar. The purge behaves exactly like saving the entry
+         * would (purge rules apply). Only shown when purging is enabled.
+         */
+        //'entryPurgeButton' => true,
+
+        /*
          * Whether to cache 404 responses. One 404 page is cached per site
          * (never per URI) and served for subsequent 404s, skipping the error
          * template render. IMPORTANT: only enable this if your 404 template

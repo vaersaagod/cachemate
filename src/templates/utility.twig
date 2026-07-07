@@ -1,0 +1,77 @@
+{# ========================================================================= #}
+{# CacheMate CP utility                                                      #}
+{# ========================================================================= #}
+
+{% set formatter = craft.app.formatter %}
+
+{% if not settings.purgeEnabled %}
+    <div class="warning-alert warning with-icon">
+        {{ 'Automatic purging is disabled — cached pages are only removed when cleared manually.'|t('cachemate') }}
+    </div>
+{% endif %}
+
+{% if stats.totalPages == 0 %}
+
+    <p class="zilch small">{{ 'No cached pages.'|t('cachemate') }}</p>
+
+{% else %}
+
+    <h2>{{ 'Cached pages'|t('cachemate') }}</h2>
+
+    <table class="data fullwidth">
+        <thead>
+            <tr>
+                <th>{{ 'Host'|t('cachemate') }}</th>
+                <th class="rightalign">{{ 'Pages'|t('cachemate') }}</th>
+                <th class="rightalign">{{ 'Size'|t('cachemate') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for host in stats.hosts %}
+                <tr>
+                    <td><code>{{ host.host }}</code></td>
+                    <td class="rightalign">{{ host.pages|number }}</td>
+                    <td class="rightalign">{{ formatter.asShortSize(host.bytes, 1) }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <th>{{ 'Total'|t('cachemate') }}</th>
+                <th class="rightalign">{{ stats.totalPages|number }}</th>
+                <th class="rightalign">{{ formatter.asShortSize(stats.totalBytes, 1) }}</th>
+            </tr>
+        </tfoot>
+    </table>
+
+    {% if stats.trashBytes > 0 %}
+        <p class="light">
+            {{ '{size} of purged pages are pending deletion (handled by the queue).'|t('cachemate', {
+                size: formatter.asShortSize(stats.trashBytes, 1),
+            }) }}
+        </p>
+    {% endif %}
+
+{% endif %}
+
+<hr>
+
+<div class="flex">
+    <form method="post" accept-charset="UTF-8">
+        {{ csrfInput() }}
+        {{ actionInput('cachemate/utility/clear') }}
+        {{ redirectInput('utilities/cachemate') }}
+        <button type="submit" class="btn submit">{{ 'Clear all cached pages'|t('cachemate') }}</button>
+    </form>
+
+    <form method="post" accept-charset="UTF-8">
+        {{ csrfInput() }}
+        {{ actionInput('cachemate/utility/sweep') }}
+        {{ redirectInput('utilities/cachemate') }}
+        <button type="submit" class="btn">{{ 'Delete expired pages'|t('cachemate') }}</button>
+    </form>
+</div>
+
+<p class="light">
+    {{ 'Clearing is instant (pages are moved to a trash area and deleted asynchronously). Deleting expired pages walks the entire cache and can take a moment on large caches.'|t('cachemate') }}
+</p>

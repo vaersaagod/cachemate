@@ -1,0 +1,83 @@
+{# ========================================================================= #}
+{# CacheMate entry sidebar panel                                             #}
+{# ========================================================================= #}
+
+{% set multiSite = status|length > 1 %}
+
+<fieldset class="cachemate-sidebar" data-not-cached="{{ 'Not cached'|t('cachemate') }}">
+    <legend class="h6">{{ 'Static cache'|t('cachemate') }}</legend>
+
+    <div class="meta">
+        {% for row in status %}
+            <div class="field">
+                <h5 class="heading">{{ multiSite ? row.site.name : 'Status'|t('cachemate') }}</h5>
+                <div class="input" data-cachemate-status>
+                    {% if row.cachedAt %}
+                        {{ 'Cached {time}'|t('cachemate', { time: row.cachedAt|timestamp('short', withPreposition=true) }) }}
+                        {%- if row.expiresAt %}<span class="light">, {{ 'expires {time}'|t('cachemate', { time: row.expiresAt|timestamp('short', withPreposition=true) }) }}</span>{% endif %}
+                    {% else %}
+                        <span class="light">{{ 'Not cached'|t('cachemate') }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        {% else %}
+            <div class="field">
+                <h5 class="heading">{{ 'Status'|t('cachemate') }}</h5>
+                <div class="input"><span class="light">{{ 'Not cached'|t('cachemate') }}</span></div>
+            </div>
+        {% endfor %}
+
+        <div class="field">
+            <button type="button" class="btn cachemate-purge-btn" data-icon="trash" data-cachemate-purge="{{ element.id }}">
+                {{ 'Purge from static cache'|t('cachemate') }}
+            </button>
+        </div>
+    </div>
+</fieldset>
+
+{% css %}
+    .cachemate-sidebar .meta {
+
+    }
+    .cachemate-purge-btn {
+
+    }
+.cachemate-sidebar .cachemate-purge-btn {
+    margin: 12px;
+}
+{% endcss %}
+
+{% js %}
+if (!window.CacheMatePurgeInit) {
+    window.CacheMatePurgeInit = true;
+
+    document.addEventListener('click', function(event) {
+        var btn = event.target.closest('[data-cachemate-purge]');
+
+        if (!btn || btn.classList.contains('loading')) {
+            return;
+        }
+
+        btn.classList.add('loading');
+
+        Craft.sendActionRequest('POST', 'cachemate/utility/purge-entry', {
+            data: { elementId: btn.getAttribute('data-cachemate-purge') },
+        }).then(function(response) {
+            Craft.cp.displayNotice(response.data.message);
+
+            // Update the status rows to reflect the purge
+            var fieldset = btn.closest('.cachemate-sidebar');
+
+            if (fieldset) {
+                fieldset.querySelectorAll('[data-cachemate-status]').forEach(function(el) {
+                    el.innerHTML = '<span class="light">' + fieldset.getAttribute('data-not-cached') + '</span>';
+                });
+            }
+        }).catch(function() {
+            Craft.cp.displayError();
+        }).finally(function() {
+            btn.classList.remove('loading');
+        });
+    });
+}
+{% endjs %}

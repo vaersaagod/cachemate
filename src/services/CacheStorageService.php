@@ -3,11 +3,15 @@
 namespace vaersaagod\cachemate\services;
 
 use Craft;
+use craft\base\Element;
+use craft\base\ElementInterface;
 use craft\helpers\ConfigHelper;
+use craft\helpers\DateTimeHelper;
 use craft\helpers\FileHelper;
 use craft\helpers\StringHelper;
 
 use vaersaagod\cachemate\CacheMate;
+use vaersaagod\cachemate\helpers\SiteHelper;
 use vaersaagod\cachemate\models\CacheableUri;
 
 use yii\base\Component;
@@ -351,8 +355,141 @@ class CacheStorageService extends Component
         return $deleted;
     }
 
+    /**
+     * Returns the cache status for an element's URLs, per site — whether a
+     * cached page exists, when it was cached and when it expires. Intended
+     * for on-demand use (the entry sidebar), not per-request.
+     *
+     * @param ElementInterface $element
+     * @return array<int, array{site: \craft\models\Site, cachedAt: \DateTime|null, expiresAt: \DateTime|null}>
+     */
+    public function getElementCacheStatus(ElementInterface $element): array
+    {
+        if (!$element->id) {
+            return [];
+        }
+
+        $status = [];
+
+        foreach (Craft::$app->getSites()->getAllSites(true) as $site) {
+            $uri = Craft::$app->getElements()->getElementUriForSite($element->id, $site->id);
+
+            if (!is_string($uri)) {
+                continue;
+            }
+
+            $sitePrefix = SiteHelper::getSiteCachePrefix($site);
+
+            if ($sitePrefix === null) {
+                continue;
+            }
+
+            $path = implode('/', array_filter([
+                $sitePrefix['prefix'],
+                $uri === Element::HOMEPAGE_URI ? '' : $uri,
+            ], static fn(string $part): bool => $part !== ''));
+
+            $filePath = $this->getFilePath(new CacheableUri([
+                'hostKey' => $sitePrefix['hostKey'],
+                'path' => $path,
+                'siteId' => $site->id,
+            ]));
+
+            $cachedAt = ($filePath !== null && is_file($filePath)) ? (@filemtime($filePath) ?: null) : null;
+            $expires = ($filePath !== null && $cachedAt !== null) ? $this->getSidecarExpiry($filePath) : null;
+
+            $status[] = [
+                'site' => $site,
+                'cachedAt' => $cachedAt !== null ? DateTimeHelper::toDateTime($cachedAt) : null,
+                'expiresAt' => ($expires !== null && $expires > 0) ? DateTimeHelper::toDateTime($expires) : null,
+            ];
+        }
+
+        return $status;
+    }
+
+    /**
+     * Returns statistics about the cache storage — cached page counts and
+     * disk usage per host, plus pending trash size. Walks the cache tree, so
+     * intended for on-demand use (the CP utility), not per-request.
+     *
+     * @return array{hosts: array, totalPages: int, totalBytes: int, trashBytes: int}
+     */
+    public function getStats(): array
+    {
+        $root = $this->getRootPath();
+        $hosts = [];
+        $totalPages = 0;
+        $totalBytes = 0;
+
+        if ($root !== null && is_dir($root)) {
+            foreach (scandir($root) ?: [] as $entry) {
+                if ($entry === '.' || $entry === '..' || !is_dir($root . DIRECTORY_SEPARATOR . $entry)) {
+                    continue;
+                }
+
+                [$pages, $bytes] = $this->getDirStats($root . DIRECTORY_SEPARATOR . $entry);
+
+                $hosts[] = [
+                    'host' => $entry,
+                    'pages' => $pages,
+                    'bytes' => $bytes,
+                ];
+
+                $totalPages += $pages;
+                $totalBytes += $bytes;
+            }
+        }
+
+        $trashPath = $this->getTrashPath();
+        $trashBytes = ($trashPath !== null && is_dir($trashPath)) ? $this->getDirStats($trashPath)[1] : 0;
+
+        return [
+            'hosts' => $hosts,
+            'totalPages' => $totalPages,
+            'totalBytes' => $totalBytes,
+            'trashBytes' => $trashBytes,
+        ];
+    }
+
     // Private Methods
     // =========================================================================
+
+    /**
+     * Returns the number of cached pages and total file size in a directory,
+     * recursively.
+     *
+     * @param string $dir
+     * @return array{0: int, 1: int}
+     */
+    private function getDirStats(string $dir): array
+    {
+        $pages = 0;
+        $bytes = 0;
+
+        try {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
+            );
+
+            /** @var \SplFileInfo $item */
+            foreach ($iterator as $item) {
+                if (!$item->isFile()) {
+                    continue;
+                }
+
+                if ($item->getFilename() === self::FILE_NAME) {
+                    ++$pages;
+                }
+
+                $bytes += $item->getSize();
+            }
+        } catch (\Throwable $throwable) {
+            Craft::error('Failed to collect cache stats for "' . $dir . '": ' . $throwable->getMessage(), __METHOD__);
+        }
+
+        return [$pages, $bytes];
+    }
 
     /**
      * Returns the expiry timestamp from a cached file's sidecar, or null if
