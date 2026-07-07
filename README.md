@@ -93,6 +93,146 @@ query-string URLs as unique pages, or to an array of param names to whitelist:
 Query string params are always sorted, so `?a=1&b=2` and `?b=2&a=1` share one
 cache entry.
 
+### enabled [bool|array]
+*Default: `true`*  
+Whether static caching is enabled. Can be a boolean, or an array keyed by site
+handle, with `'*'` as the fallback for sites not listed explicitly:
+
+```php
+'enabled' => [
+    '*' => true,
+    'intranet' => false,
+],
+```
+
+### cachePath [string]
+*Default: `'@webroot/cachemate'`*  
+Where cached pages are stored. Must be inside the web root for web server
+rewrites to be able to serve cache hits without PHP.
+
+### cacheDuration [int|string]
+*Default: `0`*  
+How long cached pages are considered fresh. Can be a number of seconds, a
+valid PHP date interval string (e.g. `'P1D'`), or `0` for no expiry (pages
+live until they're purged). Only enforced on the PHP serve path — pages served
+by web server rewrites don't expire until the [sweep](#cache-duration--sweeping)
+runs.
+
+### serveWithPhp [bool]
+*Default: `true`*  
+Whether to serve cached pages from PHP, early in the request cycle, when no
+web server rewrite is configured (or the rewrite didn't match). Disabling this
+only makes sense on installs where the rewrite is guaranteed to handle all
+cache hits.
+
+### cacheControlHeader [string]
+*Default: `'public, s-maxage=31536000, max-age=0'`*  
+The `Cache-Control` header value sent with cached responses served by PHP.
+Note that purging only deletes local files — if there's a CDN or proxy in
+front honoring `s-maxage`, consider a shorter value.
+
+### maxUriLength [int]
+*Default: `2048`*  
+The maximum length of a cacheable request URI (path + query string). Longer
+requests are served dynamically.
+
+### debugHeaders [bool|string]
+*Default: `'auto'`*  
+Whether the [X-CacheMate header](#the-x-cachemate-header) includes reason
+keywords (e.g. `bypass; session`, `miss; sets-cookies`). Set to `'auto'` to
+include reasons only when `devMode` is enabled, or `true`/`false` to force
+them on or off. The bare states (`hit`/`miss`/`bypass`) are always sent on
+front-end responses.
+
+### cacheQueryStrings [bool|array]
+*Default: `false`*  
+Whether/how query strings participate in caching:
+
+- `false`: requests with query strings (after removing `ignoredQueryParams`)
+  are never cached
+- `true`: query string URLs are cached as unique pages; all params are part of
+  the cache key, sorted by name
+- an array of param names: a whitelist — listed params are kept (sorted) in
+  the cache key; what happens to non-whitelisted params depends on
+  `strictQueryParams`
+
+See [Query strings](#query-strings) above.
+
+### strictQueryParams [bool]
+*Default: `false`*  
+Only relevant when `cacheQueryStrings` is an array. When `false`,
+non-whitelisted params are stripped from the cache key and the request is
+still cached/served. When `true`, a request carrying any param *not* in the
+whitelist (and not in `ignoredQueryParams`) is not cacheable at all.
+
+### ignoredQueryParams [array]
+*Default: `['utm_*', 'gclid', 'gclsrc', 'dclid', 'fbclid', 'msclkid', 'twclid', 'ttclid', 'mc_cid', 'mc_eid', '_ga', '_gl']`*  
+Params that never affect the cache key and never block caching, in any query
+string mode. Supports trailing-`*` wildcards.
+
+### excludedUriPatterns [array]
+*Default: `[]`*  
+URI patterns to exclude from caching. Regex fragments, matched
+case-insensitively against the site-relative path with a leading slash. Can be
+a flat array of patterns, or an array keyed by site handle with `'*'` as the
+fallback:
+
+```php
+'excludedUriPatterns' => ['^/account', '/search'],
+
+// or per site:
+'excludedUriPatterns' => [
+    '*' => ['^/account'],
+    'english' => ['^/account', '^/members'],
+],
+```
+
+### purgeEnabled [bool]
+*Default: `true`*  
+Whether cached pages are automatically purged when content changes. See
+[Purging](#purging).
+
+### trackedElementTypes [array]
+*Default: `[Entry::class, Category::class, Asset::class, GlobalSet::class]`*  
+The element types that trigger purging when they change. Element types not in
+this list (users, for instance) never purge anything.
+
+### purgeRules [array]
+*Default: `[]`*  
+Rules for what to purge when an element changes, in addition to the element's
+own URLs (which are always purged). **When no rule matches a changed element,
+the entire cache is cleared** — rules are the tool to contain purges on bigger
+sites. Keys are tried most-specific-first (`section:handle`,
+`categoryGroup:handle`, `volume:handle`, `globalSet:handle`, then `entry`/
+`category`/`asset`/`globalSet`, then `'*'`). Values can be `'all'` (clear
+everything), an array of site-relative paths (trailing `/*` = recursive), an
+array keyed by site handle, or `[]` (own URLs only). See
+[Purging](#purging) for examples.
+
+### maxTargetedPurges [int]
+*Default: `200`*  
+The maximum number of targeted purge paths per flush. When exceeded, the purge
+escalates to clearing the entire cache — which is faster, since clearing is an
+O(1) rename.
+
+### entryPurgeButton [bool]
+*Default: `true`*  
+Whether to show the "Static cache" panel with a purge button in the entry edit
+sidebar. Only shown when purging is enabled, for published entries with URLs.
+
+### cache404s [bool|array]
+*Default: `false`*  
+Whether to cache 404 responses — one page per site, never per URI. Can be a
+boolean, or an array keyed by site handle with `'*'` as the fallback. ⚠️ Only
+enable this if your 404 template does **not** render the requested URL/path or
+anything else request-specific. See [Cached 404s](#cached-404s).
+
+### cache404Duration [int|string]
+*Default: `3600`*  
+How long cached 404 pages are considered fresh. Seconds, a PHP date interval
+string, or `0` for no expiry. Cached 404s are always served via PHP, so this
+TTL is always enforced (no sweep needed).
+
 ## Cache duration & sweeping
 
 By default (`cacheDuration => 0`), cached pages live until they're purged.
@@ -238,6 +378,18 @@ php craft cachemate/cache/clear
 php craft cachemate/cache/purge /news --recursive --site=english
 ```
 
+There's also a **CacheMate utility** in the control panel (Utilities →
+CacheMate) showing cached page counts and disk usage per host, with buttons
+for clearing the cache and deleting expired pages. Access is controlled by
+the standard utility permission.
+
+Entry edit pages get a **"Static cache" panel** in the sidebar (for published
+entries with URLs) showing the entry's cached state per site — when it was
+cached, and when it expires — along with a "Purge from static cache" button
+for purging the entry manually. The purge behaves exactly like saving the
+entry would — purge rules apply, including the full-clear fallback when no
+rule matches. Disable the panel with `'entryPurgeButton' => false`.
+
 Note: purging resolves site URLs via each site's base URL. Sites with relative
 base URLs (e.g. `/no/`) are resolved against the `@web` alias or the primary
 site's host — if neither yields an absolute URL, purging fails safe by
@@ -247,11 +399,13 @@ clearing the entire cache.
 
 Cached pages are stored as
 `{cachePath}/{host}/{uri}/index.html` (query string variants under
-`.../{uri}/_q/{q  uery}/index.html`), so nginx can serve hits directly:
+`.../{uri}/_q/{query}/index.html`), so nginx can serve hits directly.
+
+Both variants below start with the same candidacy checks — cached pages are
+only served for GET/HEAD requests from visitors without a Craft
+session/identity cookie; everything else falls through to Craft:
 
 ```nginx
-# Serve cached pages directly for GET/HEAD requests from visitors without a
-# Craft session/identity cookie. Everything else falls through to Craft.
 set $cachemate "";
 if ($request_method ~ ^(GET|HEAD)$) {
     set $cachemate "G";
@@ -270,13 +424,46 @@ if ($cachemate = "G") {
 if ($cachemate = "GQ") {
     set $cachemate_path "/cachemate/$host$uri/_q/$args/index.html";
 }
+```
 
+### Variant 1: try_files
+
+The smallest possible integration — add `$cachemate_path` as the first
+`try_files` argument in the existing `location /`:
+
+```nginx
 location / {
     try_files $cachemate_path $uri $uri/ /index.php?$query_string;
 }
 ```
 
-Notes:
+Cache hits are served in place, with nginx's default static file headers.
+
+### Variant 2: dedicated location (recommended)
+
+Instead of serving the file in place, internally redirect hits into a
+dedicated location. This leaves the existing `location /` untouched, and gives
+you a block scoped exactly to cache hits — for a debug header, a proper
+`Cache-Control` header for downstream proxies/CDNs, and `internal` (which
+blocks direct external requests to `/cachemate/...` URLs):
+
+```nginx
+# Internal redirect to the cache location on a hit ('?' drops the query string)
+if (-f $document_root$cachemate_path) {
+    rewrite ^ $cachemate_path? last;
+}
+
+location /cachemate/ {
+    internal;
+    add_header X-CacheMate "hit; nginx";
+    add_header Cache-Control "public, s-maxage=31536000, max-age=0";
+}
+```
+
+With this variant the serving layer is visible per response — see the
+`X-CacheMate` header reference below.
+
+### Notes
 
 - nginx matches the query string verbatim. Requests with unsorted or ignorable
   params fall through to the PHP early-serve, which normalizes them and still
@@ -286,4 +473,39 @@ Notes:
 - Without the rewrite, everything works through the PHP early-serve fallback
   (`serveWithPhp`), which skips routing and element queries but does boot Craft.
 
-Cached responses served by PHP include an `X-CacheMate: hit` header.
+## The X-CacheMate header
+
+Every front-end response served by Craft (plus nginx-served hits with rewrite
+variant 2) carries an `X-CacheMate` header telling you what CacheMate did:
+
+| Header | Meaning |
+|---|---|
+| `X-CacheMate: hit; nginx` | Served by the web server rewrite (variant 2), no PHP involved |
+| `X-CacheMate: hit` | Served by CacheMate's PHP early-serve |
+| `X-CacheMate: miss` | The request was a cache candidate, but was rendered live (and captured, if the response qualified) |
+| `X-CacheMate: bypass` | The request was not a cache candidate |
+| *(no header)* | CP/action/console responses — or CacheMate isn't installed |
+
+With `debugHeaders` enabled (`'auto'`, the default, enables it in devMode; use
+`true`/`false` to force it on or off), a reason keyword is appended:
+
+- **bypass reasons** (request-level): `method`, `preview`, `token`, `session`,
+  `no-cache`, `disabled`, `uri` (too long/reserved segments/index.php),
+  `excluded` (matched `excludedUriPatterns`), `query` (query string rules),
+  `system`
+- **miss reasons** (the rendered response wasn't stored): `opt-out`, `status`,
+  `format`, `content`, `no-cache-headers`, `sets-cookies`, `encoded`, `totp`
+
+Miss reasons are also written to `storage/logs/cachemate-*.log`, regardless
+of the `debugHeaders` setting.
+
+
+## Changelog
+
+See [CHANGELOG.MD](https://raw.githubusercontent.com/vaersaagod/cachemate/master/CHANGELOG.md).
+
+## Credits
+
+Brought to you by [Værsågod](https://www.vaersaagod.no)
+
+Icon designed by [Freepik from Flaticon](https://www.flaticon.com/authors/freepik).
