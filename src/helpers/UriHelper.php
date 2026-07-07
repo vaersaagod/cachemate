@@ -27,16 +27,20 @@ class UriHelper
 
     /**
      * Creates a normalized CacheableUri for the current request, or returns
-     * null if the request URI is not a cache candidate.
+     * null if the request URI is not a cache candidate — in which case
+     * `$reason` is set to a keyword explaining why.
      *
      * @param Request $request
      * @param Settings $settings
+     * @param string|null $reason
      * @return CacheableUri|null
      */
-    public static function createCacheableUri(Request $request, Settings $settings): ?CacheableUri
+    public static function createCacheableUri(Request $request, Settings $settings, ?string &$reason = null): ?CacheableUri
     {
         // Junk-URI guard — overly long request URIs are served dynamically
         if (strlen($request->getUrl()) > $settings->maxUriLength) {
+            $reason = 'uri';
+
             return null;
         }
 
@@ -45,22 +49,30 @@ class UriHelper
         // Traversal guard — no control chars, and no period-only or overly long path segments.
         // The storage layer re-verifies the final path structurally (defense in depth).
         if (preg_match('/[\x00-\x1F\x7F]/', $path)) {
+            $reason = 'uri';
+
             return null;
         }
 
         foreach (explode('/', $path) as $segment) {
             if (strlen($segment) > 255 || preg_match('/^(\.|%2e)+$/i', $segment)) {
+                $reason = 'uri';
+
                 return null;
             }
 
             // Reserved cache-tree names can never be cached as real pages
             if (strcasecmp($segment, CacheStorageService::QUERY_DIR) === 0 || strcasecmp($segment, CacheStorageService::NOT_FOUND_DIR) === 0) {
+                $reason = 'uri';
+
                 return null;
             }
         }
 
         // Duplicate-content URIs via index.php are never cached
         if (str_contains(strtolower($path), 'index.php')) {
+            $reason = 'uri';
+
             return null;
         }
 
@@ -68,6 +80,8 @@ class UriHelper
         $excludedPatterns = $settings->getLocalizedConfigSetting('excludedUriPatterns');
 
         if (!empty($excludedPatterns) && static::matchesUriPatterns('/' . $path, $excludedPatterns)) {
+            $reason = 'excluded';
+
             return null;
         }
 
@@ -78,6 +92,8 @@ class UriHelper
         $queryParams = static::normalizeQueryParams($queryParams, $settings);
 
         if ($queryParams === null) {
+            $reason = 'query';
+
             return null;
         }
 

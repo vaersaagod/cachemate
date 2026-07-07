@@ -187,6 +187,19 @@ class Settings extends Model
     public int $maxTargetedPurges = 200;
 
     /**
+     * Whether the X-CacheMate response header includes the reason when a
+     * request bypasses the cache or a rendered response isn't stored (e.g.
+     * 'bypass; session', 'miss; sets-cookies').
+     *
+     * - 'auto' (default): reasons are included when devMode is enabled
+     * - true: reasons are always included
+     * - false: never — only the bare states (hit/miss/bypass) are sent
+     *
+     * @var bool|string
+     */
+    public bool|string $debugHeaders = 'auto';
+
+    /**
      * Whether to show a "Purge from static cache" button in the entry edit
      * sidebar, letting editors purge individual entries manually. The purge
      * behaves exactly like saving the entry would (purge rules apply).

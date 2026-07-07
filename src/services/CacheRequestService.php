@@ -46,6 +46,9 @@ class CacheRequestService extends Component
     /** @var bool Whether a cached response is being served (capture handlers bail) */
     private bool $_serving = false;
 
+    /** @var string|null The reason the current request isn't a cache candidate */
+    private ?string $_bypassReason = null;
+
     // Public Methods
     // =========================================================================
 
@@ -61,6 +64,14 @@ class CacheRequestService extends Component
         $uri = $this->getCacheableUri();
 
         if ($uri === null) {
+            // Not a candidate — send the bypass state on front-end responses
+            // only, never on CP or action responses
+            $request = Craft::$app->getRequest();
+
+            if ($request instanceof Request && $request->getIsSiteRequest() && !$request->getIsCpRequest() && !$request->getIsActionRequest()) {
+                $this->setStateHeader('bypass', $this->_bypassReason);
+            }
+
             return;
         }
 
@@ -69,7 +80,7 @@ class CacheRequestService extends Component
         }
 
         // The request is a cache candidate, but wasn't served from the cache
-        Craft::$app->getResponse()->getHeaders()->set('X-CacheMate', 'miss');
+        $this->setStateHeader('miss');
 
         // Only capture GET requests (HEAD responses have no body to store)
         if (Craft::$app->getRequest()->getIsGet()) {
@@ -100,12 +111,19 @@ class CacheRequestService extends Component
         }
 
         $settings = CacheMate::getInstance()->getSettings();
+        $this->_bypassReason = RequestHelper::getUncacheableRequestReason($request, $settings);
 
-        if (!RequestHelper::isCacheableRequest($request, $settings)) {
+        if ($this->_bypassReason !== null) {
             return null;
         }
 
-        return $this->_cacheableUri = UriHelper::createCacheableUri($request, $settings);
+        $uri = UriHelper::createCacheableUri($request, $settings, $uriReason);
+
+        if ($uri === null) {
+            $this->_bypassReason = $uriReason ?? 'uri';
+        }
+
+        return $this->_cacheableUri = $uri;
     }
 
     /**
@@ -235,7 +253,8 @@ class CacheRequestService extends Component
             $reason = $this->getUncacheableResponseReason($response);
 
             if ($reason !== null) {
-                Craft::info('Not caching "' . $uri->getKey() . '" — ' . $reason, __METHOD__);
+                Craft::info('Not caching "' . $uri->getKey() . '" (reason: ' . $reason . ')', __METHOD__);
+                $this->setStateHeader('miss', $reason);
 
                 return;
             }
@@ -339,7 +358,7 @@ class CacheRequestService extends Component
             $reason = $this->getUncacheableResponseReason($response, 404);
 
             if ($reason !== null) {
-                Craft::info('Not caching the 404 page "' . $uri->getKey() . '" — ' . $reason, __METHOD__);
+                Craft::info('Not caching the 404 page "' . $uri->getKey() . '" (reason: ' . $reason . ')', __METHOD__);
 
                 return;
             }
@@ -386,44 +405,78 @@ class CacheRequestService extends Component
     private function getUncacheableResponseReason(Response $response, int $expectedStatus = 200): ?string
     {
         if ($this->_excluded) {
-            return 'the request was excluded at runtime';
+            return 'opt-out';
         }
 
         if ($response->getStatusCode() !== $expectedStatus) {
-            return 'the response status is ' . $response->getStatusCode();
+            return 'status';
         }
 
         if ($response->format !== TemplateResponseFormatter::FORMAT && $response->format !== Response::FORMAT_HTML) {
-            return 'the response format is "' . $response->format . '"';
+            return 'format';
         }
 
         if (!str_starts_with($response->getContentType() ?? '', 'text/html')) {
-            return 'the content type is "' . ($response->getContentType() ?? '') . '"';
+            return 'format';
         }
 
         if ($response->stream !== null || !is_string($response->content) || $response->content === '') {
-            return 'the response has no cacheable content';
+            return 'content';
         }
 
         $headers = $response->getHeaders();
         $cacheControl = implode(',', $headers->get('cache-control', [], false) ?? []);
 
         if (preg_match('/no-cache|no-store|private/i', $cacheControl)) {
-            return 'the response has no-cache headers';
+            return 'no-cache-headers';
         }
 
         if ($response->getCookies()->getCount() > 0 || !empty($headers->get('set-cookie', null, false))) {
-            return 'the response sets cookies';
+            return 'sets-cookies';
         }
 
         if ($headers->get('content-encoding') !== null) {
-            return 'the response is encoded';
+            return 'encoded';
         }
 
         if (str_contains($response->content, 'craft\auth\methods\TOTP')) {
-            return 'the response contains a two-step verification form';
+            return 'totp';
         }
 
         return null;
+    }
+
+    /**
+     * Sets the X-CacheMate response header. The reason is only included when
+     * debug headers are enabled.
+     *
+     * @param string $state
+     * @param string|null $reason
+     * @return void
+     */
+    private function setStateHeader(string $state, ?string $reason = null): void
+    {
+        if ($reason !== null && $this->getIncludeHeaderReasons()) {
+            $state .= '; ' . $reason;
+        }
+
+        Craft::$app->getResponse()->getHeaders()->set('X-CacheMate', $state);
+    }
+
+    /**
+     * Returns whether X-CacheMate headers should include reason keywords, per
+     * the debugHeaders setting ('auto' = only when devMode is enabled).
+     *
+     * @return bool
+     */
+    private function getIncludeHeaderReasons(): bool
+    {
+        $setting = CacheMate::getInstance()->getSettings()->debugHeaders;
+
+        if ($setting === 'auto') {
+            return Craft::$app->getConfig()->getGeneral()->devMode;
+        }
+
+        return (bool)$setting;
     }
 }

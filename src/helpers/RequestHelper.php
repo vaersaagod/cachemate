@@ -32,24 +32,38 @@ class RequestHelper
      */
     public static function isCacheableRequest(Request $request, Settings $settings): bool
     {
+        return static::getUncacheableRequestReason($request, $settings) === null;
+    }
+
+    /**
+     * Returns the reason the current request is not a candidate for static
+     * caching (a keyword, used in logs and the X-CacheMate debug header), or
+     * null if it is a candidate.
+     *
+     * @param Request $request
+     * @param Settings $settings
+     * @return string|null
+     */
+    public static function getUncacheableRequestReason(Request $request, Settings $settings): ?string
+    {
         // Only GET (serve + capture) and HEAD (serve only) requests are candidates
         if (!$request->getIsGet() && !$request->getIsHead()) {
-            return false;
+            return 'method';
         }
 
         // Never on uninstalled or updating installs
         if (!Craft::$app->getIsInstalled()) {
-            return false;
+            return 'system';
         }
 
         // Site requests only — never the control panel
         if (!$request->getIsSiteRequest() || $request->getIsCpRequest()) {
-            return false;
+            return 'cp';
         }
 
         // Never action requests (also covers login/logout/set-password/update special paths)
         if ($request->getIsActionRequest() || $request->getIsLoginRequest()) {
-            return false;
+            return 'action';
         }
 
         // Never previews. Raw param/header checks (rather than getIsPreview(), which
@@ -60,7 +74,7 @@ class RequestHelper
             || $request->getQueryParam('x-craft-live-preview') !== null
             || $request->getHeaders()->has('X-Craft-Preview-Token')
         ) {
-            return false;
+            return 'preview';
         }
 
         // Never tokenized requests. Presence checks only — validating the token
@@ -72,27 +86,27 @@ class RequestHelper
             || $request->getHeaders()->has('X-Craft-Token')
             || $request->getSiteToken() !== null
         ) {
-            return false;
+            return 'token';
         }
 
         // Never for requests carrying a Craft identity or PHP session cookie —
         // logged-in users always see live pages, and anonymous sessions can carry
         // flash messages and per-session CSRF state
         if (static::hasUserSessionCookie()) {
-            return false;
+            return 'session';
         }
 
         // Support a ?no-cache bypass param, but only in devMode
         if ($generalConfig->devMode && $request->getQueryParam('no-cache') !== null) {
-            return false;
+            return 'no-cache';
         }
 
         // Per-site enable/disable
         if (!$settings->getLocalizedConfigSetting('enabled')) {
-            return false;
+            return 'disabled';
         }
 
-        return true;
+        return null;
     }
 
     /**

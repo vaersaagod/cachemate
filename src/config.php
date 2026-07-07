@@ -123,6 +123,14 @@ return [
         //'maxTargetedPurges' => 200,
 
         /*
+         * Whether the X-CacheMate response header includes reason keywords
+         * ('bypass; session', 'miss; sets-cookies' etc.). 'auto' = only when
+         * devMode is enabled, true = always, false = never. The bare states
+         * (hit/miss/bypass) are always sent on front-end responses.
+         */
+        //'debugHeaders' => 'auto',
+
+        /*
          * Whether to show a "Purge from static cache" button in the entry
          * edit sidebar. The purge behaves exactly like saving the entry
          * would (purge rules apply). Only shown when purging is enabled.
