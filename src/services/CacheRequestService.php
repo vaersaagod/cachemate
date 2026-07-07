@@ -68,6 +68,9 @@ class CacheRequestService extends Component
             $this->serveCachedResponse($uri);
         }
 
+        // The request is a cache candidate, but wasn't served from the cache
+        Craft::$app->getResponse()->getHeaders()->set('X-CacheMate', 'miss');
+
         // Only capture GET requests (HEAD responses have no body to store)
         if (Craft::$app->getRequest()->getIsGet()) {
             $this->attachCaptureHandler($uri);
